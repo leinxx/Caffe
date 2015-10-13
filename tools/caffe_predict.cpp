@@ -25,6 +25,8 @@ DEFINE_string(image, "", "Input images, file pathes of different bands of the sa
 DEFINE_string(model, "", "model path");
 DEFINE_string(weights, "", "model deploy architecture file");
 DEFINE_string(predict, "", "Predict path");
+DEFINE_string(meanfile, "", "mean file");
+DEFINE_string(featurename, "", "feature name");
 
 void fill_predict(cv::Mat& predict, int roff, int coff, int rows, int cols, int start_index, const float* src, int n) {
 // fill src data to a roi of predict defined bu roff, coff, rows and cols, start index is the index in the roi
@@ -36,12 +38,12 @@ void fill_predict(cv::Mat& predict, int roff, int coff, int rows, int cols, int 
   }
 }
 
-void copy_from_mat(cv::Mat& image, int roff, int coff, int rows, int cols, float* dst)  {
+void copy_from_mat(cv::Mat& image, int roff, int coff, int rows, int cols, float mean, float scale, float* dst)  {
   CHECK_LT(roff + rows, image.rows);
   CHECK_LT(coff + cols, image.cols);
   for (int i = roff; i != roff + rows; ++i) {
     for (int j = coff; j != coff + cols; ++j)  {
-      *dst = static_cast<float>(image.at<unsigned char>(i, j));
+      *dst = (static_cast<float>(image.at<unsigned char>(i, j)) - mean) * scale;
       ++dst;
     }
   }
@@ -54,8 +56,10 @@ int main(int argc, char** argv) {
 
   CHECK_NE(FLAGS_image, "");
   CHECK_NE(FLAGS_model, "");
-  CHECK_NE(FLAGS_model, "");
+  CHECK_NE(FLAGS_predict, "");
   CHECK_NE(FLAGS_weights, "");
+  CHECK_NE(FLAGS_featurename, "");
+  CHECK_NE(FLAGS_meanfile, "");
 
   // network initialization
   Caffe::set_phase(Caffe::TEST);
@@ -79,47 +83,65 @@ int main(int argc, char** argv) {
     }
     channels += image_bands[band].channels();
   }
-  
- vector<Blob<float>* > input_blobs = caffe_net.input_blobs();
- CHECK_EQ(input_blobs.size(), 1) << "only one input blob: data";
- Blob<float>* data_blob = input_blobs[0]; 
- const int width = data_blob->width();
- const int height = data_blob->height();
- CHECK_EQ(data_blob->channels(), channels);
- float* data = data_blob->mutable_cpu_data();
- const int W = image_bands[0].cols;
- const int H = image_bands[0].rows;
- const int roff = height/2;
- const int coff = width/2;
- const int batch_size = data_blob->num();
- cv::Mat predict = cv::Mat::zeros(H, W, CV_8U);
- int n = 0;
- int current_fill_index = 0;
- for (int r = roff; r != H-height+roff; ++r) {
-  for (int c = coff; c != W-width+coff; ++c)  {
-    // extract patch
-    for (int b = 0; b != channels; ++b, data += width * height)  {
-      copy_from_mat(image_bands[b], r - roff, c - coff, height, width, data);
-    }
-    ++n;
-    if (n == batch_size)  {
-      // predict
-      caffe_net.ForwardPrefilled(); 
-      const shared_ptr<Blob<float> > feature_blob = caffe_net.blob_by_name("fc5");
-      fill_predict(predict, roff, coff, H - height, W - width, current_fill_index,feature_blob->cpu_data(), batch_size);
-      current_fill_index += batch_size;
-      n = 0;
-      //caffe_set()
-      data = data_blob->mutable_cpu_data();
-    } 
+
+
+  vector<float> mean;
+  vector<float> scale;
+  LOG(ERROR) << FLAGS_meanfile;
+  std::ifstream meanfile(FLAGS_meanfile.c_str());
+  scale.resize(channels);
+  mean.resize(channels);
+  for (int i = 0; i != channels; ++i)  {
+    meanfile >> mean[i] >> scale[i];
+    scale[i] = 1.0 / scale[i]; 
+    LOG(ERROR) << "channel " << i << 
+      " : mean " << mean[i] << 
+      " std " << 1. / scale[i];
   }
- }
- if (n) {
-  // predict
-   caffe_net.ForwardPrefilled(); 
-  // use the first n results
-   const shared_ptr<Blob<float> > feature_blob = caffe_net.blob_by_name("fc5");
-   fill_predict(predict, roff, coff, H - height, W - width, current_fill_index, feature_blob->cpu_data(), n);
- }
+
+  vector<Blob<float>* > input = caffe_net.input_blobs();
+  CHECK_EQ(input.size(), 1);
+  Blob<float>* input_data = input[0];
+  const int width = input_data->width();
+  const int height = input_data->height();
+  CHECK_EQ(channels, input_data->channels());
+  const int batch_size = input_data->num();
+  const int size = width * height * channels;
+  const int W = image_bands[0].cols;
+  const int H = image_bands[0].rows;
+  const int roff = height/2;
+  const int coff = width/2;
+  cv::Mat predict = cv::Mat::zeros(H, W, CV_8U);
+  int n = 0;
+  int current_fill_index = 0;
+  for (int r = roff; r != H-height+roff; ++r) {
+    for (int c = coff; c != W-width+coff; ++c)  {
+      // extract patch
+      float* data = input_data->mutable_cpu_data() + n * size;
+      for (int b = 0; b != channels; ++b, data += width * height)  {
+        copy_from_mat(image_bands[b], r - roff, c - coff, height, width, mean[b], scale[b], data);
+      }
+      ++n;
+      if (n == batch_size)  {
+        // predict
+        LOG(ERROR) << r << " " << c;
+        caffe_net.ForwardPrefilled(); 
+        const shared_ptr<Blob<float> > feature_blob = caffe_net.blob_by_name(FLAGS_featurename);
+        fill_predict(predict, roff, coff, H - height, W - width, current_fill_index,feature_blob->cpu_data(), batch_size);
+        current_fill_index += batch_size;
+        n = 0;
+        //caffe_set()
+      } 
+    }
+  }
+  if (n) {
+    // predict
+    caffe_net.ForwardPrefilled(); 
+    // use the first n results
+    const shared_ptr<Blob<float> > feature_blob = caffe_net.blob_by_name(FLAGS_featurename);
+    fill_predict(predict, roff, coff, H - height, W - width, current_fill_index, feature_blob->cpu_data(), n);
+  }
+
+  cv::imwrite(FLAGS_predict, predict);
 }
 

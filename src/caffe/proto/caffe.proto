@@ -571,6 +571,7 @@ message MemoryDataParameter {
   optional uint32 channels = 2;
   optional uint32 height = 3;
   optional uint32 width = 4;
+  optional string mean_file = 5;
 }
 
 // Message that stores parameters used by MVNLayer
@@ -733,6 +734,10 @@ message DatumDataParameter  {
   // the scale for label values, this is used when labels are actually used for regression intead 
   // of classification
   optional float label_scale = 11 [default = 1];
+
+  // if set, labels of the set values will be considered as binary labels instead of real values
+  // mutiple binary_labels can be set
+  repeated uint32 binary_label = 12;
 }
 
 // DEPRECATED: V0LayerParameter is the old way of specifying layer parameters

@@ -311,6 +311,9 @@ class MemoryDataLayer : public BaseDataLayer<Dtype> {
   Blob<Dtype> added_data_;
   Blob<Dtype> added_label_;
   bool has_new_data_;
+
+  vector<Dtype> channel_scale_;
+  vector<Dtype> channel_mean_;
 };
 
 /**
@@ -366,6 +369,7 @@ class DatumDataLayer : public BasePrefetchingDataLayer<Dtype> {
   virtual void InternalThreadEntry();
   void update_prefetch_buffer();
   void write_blob_to_image(Blob<Dtype>& blob);
+  void write_blob_to_image(Blob<Dtype>& blob, Blob<Dtype>& label);
   void write_datum_to_image(Datum& datum, int idx);
 
   vector<std::string> lines_;
@@ -373,8 +377,9 @@ class DatumDataLayer : public BasePrefetchingDataLayer<Dtype> {
   vector<Datum> prefetch_buffer_;
   int current_idx_;
   bool shuffle_;
-  vector<Dtype> scale_;
-  vector<Dtype> mean_;
+  vector<Dtype> channel_scale_;
+  vector<Dtype> channel_mean_;
+  vector<unsigned int> binary_labels_;
 };
 }  // namespace caffe
 

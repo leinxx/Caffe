@@ -28,6 +28,25 @@ void MemoryDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
   labels_ = NULL;
   added_data_.cpu_data();
   added_label_.cpu_data();
+
+  channel_scale_.clear();
+  channel_mean_.clear();
+  // read channel-wise mean and std
+  if (this->layer_param_.memory_data_param().has_mean_file()) { 
+    std::ifstream meanfile(this->layer_param_.memory_data_param().mean_file().c_str());
+    if (!meanfile.is_open())  {
+      LOG(FATAL) << "open mean_file in memory_data_param failed : " << this->layer_param_.memory_data_param().mean_file();
+    }
+    channel_scale_.resize(this->datum_channels_);
+    channel_mean_.resize(this->datum_channels_);
+    for (int i = 0; i != this->datum_channels_; ++i)  {
+      meanfile >> channel_mean_[i] >> channel_scale_[i];
+      channel_scale_[i] = 1.0 / channel_scale_[i]; 
+      LOG(ERROR) << "channel " << i << 
+        " : mean " << channel_mean_[i] << 
+        " std " << 1. /channel_scale_[i];
+    }
+  }
 }
 
 template <typename Dtype>
@@ -42,16 +61,26 @@ void MemoryDataLayer<Dtype>::AddDatumVector(const vector<Datum>& datum_vector) {
 
   Dtype* top_data = added_data_.mutable_cpu_data();
   Dtype* top_label = added_label_.mutable_cpu_data();
+  if (this->mean_ != NULL && this->channel_mean_.size())  {
+    LOG(FATAL) << "only one of transform_param and memory_data_param could have mean_file";
+  }
+
   for (int batch_item_id = 0; batch_item_id < num; ++batch_item_id) {
     // Apply data transformations (mirror, scale, crop...)
+    if (this->channel_mean_.size())  {
+      this->data_transformer_.Transform(batch_item_id, datum_vector[batch_item_id], 
+          this->channel_mean_, this->channel_scale_, top_data);
+    } else  {
     this->data_transformer_.Transform(
         batch_item_id, datum_vector[batch_item_id], this->mean_, top_data);
+    }
     top_label[batch_item_id] = datum_vector[batch_item_id].label();
   }
   // num_images == batch_size_
   Reset(top_data, top_label, batch_size_);
   has_new_data_ = true;
 }
+
 
 template <typename Dtype>
 void MemoryDataLayer<Dtype>::Reset(Dtype* data, Dtype* labels, int n) {

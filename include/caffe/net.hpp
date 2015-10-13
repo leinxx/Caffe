@@ -144,6 +144,7 @@ class Net {
   const shared_ptr<Blob<Dtype> > blob_by_name(const string& blob_name);
   bool has_layer(const string& layer_name);
   const shared_ptr<Layer<Dtype> > layer_by_name(const string& layer_name);
+  shared_ptr<Layer<Dtype> > mutable_layer_by_name(const string& layer_name);
 
   void set_debug_info(const bool value) { debug_info_ = value; }
 

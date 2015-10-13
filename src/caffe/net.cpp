@@ -819,6 +819,19 @@ const shared_ptr<Layer<Dtype> > Net<Dtype>::layer_by_name(
   return layer_ptr;
 }
 
+template <typename Dtype>
+shared_ptr<Layer<Dtype> > Net<Dtype>::mutable_layer_by_name(
+    const string& layer_name) {
+  shared_ptr<Layer<Dtype> > layer_ptr;
+  if (has_layer(layer_name)) {
+    layer_ptr = layers_[layer_names_index_[layer_name]];
+  } else {
+    layer_ptr.reset((Layer<Dtype>*)(NULL));
+    LOG(WARNING) << "Unknown layer name " << layer_name;
+  }
+  return layer_ptr;
+}
+
 INSTANTIATE_CLASS(Net);
 
 }  // namespace caffe
