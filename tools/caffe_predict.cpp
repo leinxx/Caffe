@@ -28,26 +28,38 @@ DEFINE_string(predict, "", "Predict path");
 DEFINE_string(meanfile, "", "mean file");
 DEFINE_string(featurename, "", "feature name");
 
-void fill_predict(cv::Mat& predict, int roff, int coff, int rows, int cols, int start_index, const float* src, int n) {
+void fill_predict(cv::Mat& predict, int roff, int coff, shared_ptr<Blob<float> > src, const float scale) {
+// fill src data to a roi of predict defined bu roff, coff, rows and cols, start index is the index in the roi
+// n : number of src data to fill
+  const float* src_data = src->cpu_data();
+  int rend = std::min(predict.rows, src->height() + roff);
+  int cend = std::min(predict.cols, src->width() + coff);
+  for (int r = roff; r != rend; ++r) {
+    for (int c = coff; c != cend; ++c) {
+      predict.at<unsigned char>(r, c) = src_data[(r - roff) * src->width() + c - coff] * scale;
+    }
+  }
+}
+
+void copy_from_mat(cv::Mat& image, int roff, int coff, int rows, int cols, float mean, float scale, float* dst)  {
+  int rend = std::min(roff + rows, image.rows); 
+  int cend = std::min(coff + cols, image.cols); 
+  for (int i = roff; i != rend; ++i) {
+    for (int j = coff; j != cend; ++j)  {
+      dst[(i-roff) * cols + j - coff] = (static_cast<float>(image.at<unsigned char>(i, j)) - mean) * scale;
+    }
+  }
+}
+void fill_predict(cv::Mat& predict, int roff, int coff, int rows, int cols, int start_index, const float* src, int n, float scale) {
 // fill src data to a roi of predict defined bu roff, coff, rows and cols, start index is the index in the roi
 // n : number of src data to fill
   for (int i = 0; i != n; ++i) {
     int r = (start_index + i) / cols + roff;
     int c = (start_index + i) % cols + coff;
-    predict.at<float>(r, c) = src[i];
+    predict.at<unsigned int>(r, c) = src[i] * scale;
   }
 }
 
-void copy_from_mat(cv::Mat& image, int roff, int coff, int rows, int cols, float mean, float scale, float* dst)  {
-  CHECK_LT(roff + rows, image.rows);
-  CHECK_LT(coff + cols, image.cols);
-  for (int i = roff; i != roff + rows; ++i) {
-    for (int j = coff; j != coff + cols; ++j)  {
-      *dst = (static_cast<float>(image.at<unsigned char>(i, j)) - mean) * scale;
-      ++dst;
-    }
-  }
-}
 
 int main(int argc, char** argv) {
   google::InitGoogleLogging(argv[0]);

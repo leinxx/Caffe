@@ -30,7 +30,7 @@ DEFINE_string(predict, "", "Predict path");
 DEFINE_string(meanfile, "", "mean file");
 DEFINE_string(featurename, "", "feature name");
 
-void fill_predict(cv::Mat& predict, int roff, int coff, shared_ptr<Blob<float> > src) {
+void fill_predict(cv::Mat& predict, int roff, int coff, shared_ptr<Blob<float> > src, const float scale) {
 // fill src data to a roi of predict defined bu roff, coff, rows and cols, start index is the index in the roi
 // n : number of src data to fill
   const float* src_data = src->cpu_data();
@@ -38,19 +38,17 @@ void fill_predict(cv::Mat& predict, int roff, int coff, shared_ptr<Blob<float> >
   int cend = std::min(predict.cols, src->width() + coff);
   for (int r = roff; r != rend; ++r) {
     for (int c = coff; c != cend; ++c) {
-      predict.at<float>(r, c) = src_data[(r - roff) * src->width() + c - coff];
+      predict.at<unsigned char>(r, c) = src_data[(r - roff) * src->width() + c - coff] * scale;
     }
   }
 }
 
 void copy_from_mat(cv::Mat& image, int roff, int coff, int rows, int cols, float mean, float scale, float* dst)  {
-  CHECK_LT(roff + rows, image.rows);
-  CHECK_LT(coff + cols, image.cols);
   int rend = std::min(roff + rows, image.rows); 
   int cend = std::min(coff + cols, image.cols); 
   for (int i = roff; i != rend; ++i) {
     for (int j = coff; j != cend; ++j)  {
-      dst[i * cols + j] = (static_cast<float>(image.at<unsigned char>(i, j)) - mean) * scale;
+      dst[(i-roff) * cols + j - coff] = (static_cast<float>(image.at<unsigned char>(i, j)) - mean) * scale;
     }
   }
 }
@@ -121,23 +119,27 @@ int main(int argc, char** argv) {
   const int width = input_data->width();
   const int height = input_data->height();
   CHECK_EQ(channels, input_data->channels());
-  const int roff = 0;
-  const int coff = 0;
+  const int roff = 20;
+  const int coff = 20;
   cv::Mat predict = cv::Mat::zeros(H, W, CV_8U);
+        cv::imwrite(FLAGS_predict, predict);
   int rstep = 450;
   int cstep = 450;
-  for (int r = roff; r <= H-height+roff; r += rstep) {
-    for (int c = coff; c <= W-width+coff; c += cstep)  {
+  for (int r = roff; r <= H-20; r += rstep) {
+    for (int c = coff; c <= W-20; c += cstep)  {
       // extract patch
       float* data = input_data->mutable_cpu_data() ;
       for (int b = 0; b != channels; ++b, data += width * height)  {
         copy_from_mat(image_bands[b], r - roff, c - coff, height, width, mean[b], scale[b], data);
       }
+        cv::imwrite(FLAGS_predict, predict);
         // predict
         LOG(ERROR) << r << " " << c;
-        caffe_net.ForwardPrefilled(); 
+        caffe_net.ForwardPrefilled();
         const shared_ptr<Blob<float> > feature_blob = caffe_net.blob_by_name(FLAGS_featurename);
-        fill_predict(predict, roff, coff, feature_blob);
+        cv::imwrite(FLAGS_predict, predict);
+        fill_predict(predict, r, c, feature_blob, 100);
+        cv::imwrite(FLAGS_predict, predict);
     }
   }
 
